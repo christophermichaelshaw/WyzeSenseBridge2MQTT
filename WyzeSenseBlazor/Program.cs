@@ -16,16 +16,24 @@ namespace WyzeSenseBlazor
             CreateHostBuilder(args).Build().Run();
         }
 
-        public static IHostBuilder CreateHostBuilder(string[] args) =>
-            Host.CreateDefaultBuilder(args)
+    public static IHostBuilder CreateHostBuilder(string[] args) =>
+        Host.CreateDefaultBuilder(args)
             .ConfigureLogging(logging =>
             {
                 logging.ClearProviders();
                 logging.AddConsole();
             })
-                .ConfigureWebHostDefaults(webBuilder =>
+            .ConfigureWebHostDefaults(webBuilder =>
+            {
+                webBuilder.UseStartup<Startup>();
+                webBuilder.ConfigureKestrel(serverOptions =>
                 {
-                    webBuilder.UseStartup<Startup>();
+                    serverOptions.ListenAnyIP(5000); // HTTP
+                    serverOptions.ListenAnyIP(5001, listenOptions => // HTTPS
+                    {
+                        listenOptions.UseHttps();
+                    });
                 });
+            });
     }
 }
