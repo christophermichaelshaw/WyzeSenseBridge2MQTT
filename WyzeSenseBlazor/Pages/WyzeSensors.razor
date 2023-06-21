@@ -156,12 +156,15 @@ else
     private async Task OpenDrawer(string MAC)
     {
         var options = new DrawerOptions()
-        {
-            Title = "Edit Sensor",
-            Width = 350
-        };
-        Console.WriteLine("Test");
-        var result = await DrawerService.CreateAsync<WyzeSenseBlazor.Component.WyzeSensor, WyzeSensorModel, WyzeSensorModel>(options, sensorCollection[MAC]);
-    }
+            {
+                Title = "Edit Sensor",
+                Width = 350
+            };
+        var drawerRef = await DrawerService.CreateAsync<WyzeSenseBlazor.Component.WyzeSensor, WyzeSensorModel, WyzeSensorModel>(options, sensorCollection[MAC]);
 
+        // The drawer is closed by the user, so there's no need to call CloseAsync here
+
+        // After the drawer is closed, update the sensor in the backend
+        await SensorService.UpdateSensorAsync(sensorCollection[MAC]);
+    }
 }

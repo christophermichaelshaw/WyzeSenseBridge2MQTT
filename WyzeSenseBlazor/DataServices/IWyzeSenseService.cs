@@ -29,5 +29,7 @@ namespace WyzeSenseBlazor.DataServices
 
         Task SetAlias(string MAC, string Alias);
         Task SetDescription(string MAC, string Description);
+        Task UpdateSensorAsync(WyzeSensorModel updatedSensor);
+
     }
 }

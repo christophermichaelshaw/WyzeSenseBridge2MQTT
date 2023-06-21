@@ -9,6 +9,7 @@ using WyzeSenseBlazor.Settings;
 using WyzeSenseBlazor.DataStorage;
 using WyzeSenseBlazor.DataStorage.Models;
 using System.Collections.Generic;
+using AntDesign;
 
 namespace WyzeSenseBlazor.DataServices
 {
@@ -187,5 +188,27 @@ namespace WyzeSenseBlazor.DataServices
                 await _dataStore.Save();
             }
         }
+        public async Task UpdateSensorAsync(WyzeSensorModel updatedSensor)
+        {
+            // Retrieve the existing sensor from the dictionary
+            WyzeSensorModel existingSensor;
+            bool sensorExists = _dataStore.DataStore.Sensors.TryGetValue(updatedSensor.MAC, out existingSensor);
+
+            if (sensorExists)
+            {
+                // Update the existing sensor with the new values
+                existingSensor.Alias = updatedSensor.Alias;
+                existingSensor.Description = updatedSensor.Description;
+
+                // Since this is a dictionary, changes are immediate and there's no need to call SaveChanges but we'll do it anyway just to be safe.
+                await _dataStore.Save();
+            }
+            else
+            {
+                throw new Exception($"Sensor with MAC {updatedSensor.MAC} not found.");
+            }
+        }
+
+
     }
 }

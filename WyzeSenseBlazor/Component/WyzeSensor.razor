@@ -1,20 +1,38 @@
 ﻿@using WyzeSenseCore
 @using AntDesign;
+@using WyzeSenseBlazor.DataServices
+@inject IWyzeSenseService SensorService
 
 @inherits FeedbackComponent<DataStorage.Models.WyzeSensorModel, DataStorage.Models.WyzeSensorModel>
 
-<Form Model="@sensor">
+<Form Model="@sensor" OnFinish="HandleFinish">
     <FormItem Label="MAC">
         @context.MAC
+    </FormItem>
+    <FormItem Label="Alias">
+        <Input @bind-Value="sensor.Alias" />
+    </FormItem>
+    <FormItem Label="Description">
+        <Input @bind-Value="sensor.Description" />
+    </FormItem>
+    <FormItem>
+        <Button Type="primary" HtmlType="submit">Submit</Button>
     </FormItem>
 </Form>
 
 @code {
-    
     DataStorage.Models.WyzeSensorModel sensor { get; set; }
-        protected override void OnInitialized()
-        {
-            sensor = base.Options;
-            base.OnInitialized();
-        }
+
+    protected override void OnInitialized()
+    {
+        sensor = base.Options;
+        base.OnInitialized();
+    }
+
+    private async Task HandleFinish()
+    {
+        await SensorService.SetAlias(sensor.MAC, sensor.Alias);
+        await SensorService.SetDescription(sensor.MAC, sensor.Description);
+        await FeedbackRef.CloseAsync();
+    }
 }
