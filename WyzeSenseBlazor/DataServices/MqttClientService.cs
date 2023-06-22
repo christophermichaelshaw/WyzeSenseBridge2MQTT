@@ -39,8 +39,8 @@ namespace WyzeSenseBlazor.DataServices
 
         private void WyzeSenseService_OnEvent(object sender, WyzeSenseEvent e)
         {
-            _logger.LogInformation($"[Dongle][{e.Type}] {e}");
-            if (e.Type == "State")
+            _logger.LogInformation($"[Dongle][{e.EventType}] {e}");
+            if (e.EventType == "State")
             {
                 var payload = new PayloadPackage
                 {
@@ -88,11 +88,12 @@ namespace WyzeSenseBlazor.DataServices
                 }
 
                 var message = new MqttApplicationMessageBuilder()
-                    .WithTopic($"{_options.Value.TopicPrefix}/{e.MAC}")
+                    .WithTopic(topic: $"{_options.TopicPrefix}/{e.Sensor.MAC}") // Changed this line
                     .WithPayload(JsonSerializer.Serialize(payload))
                     .WithExactlyOnceQoS()
                     .WithRetainFlag()
                     .Build();
+
 
                 _mqttClient.PublishAsync(message, CancellationToken.None);
             }
@@ -100,23 +101,16 @@ namespace WyzeSenseBlazor.DataServices
 
         private string ConvertModeNameToState(string modeName)
         {
-            switch (modeName)
+            return modeName switch
             {
-                case "Disarmed":
-                    return "DISARM";
-                case "Home":
-                    return "ARM_HOME";
-                case "Away":
-                    return "ARM_AWAY";
-                case "Night":
-                    return "ARM_NIGHT";
-                case "Vacation":
-                    return "ARM_VACATION";
-                case "Bypass":
-                    return "ARM_CUSTOM_BYPASS";
-                default:
-                    return modeName;
-            }
+                "Disarmed" => "DISARM",
+                "Home" => "ARM_HOME",
+                "Away" => "ARM_AWAY",
+                "Night" => "ARM_NIGHT",
+                "Vacation" => "ARM_VACATION",
+                "Bypass" => "ARM_CUSTOM_BYPASS",
+                _ => modeName,
+            };
         }
 
 
