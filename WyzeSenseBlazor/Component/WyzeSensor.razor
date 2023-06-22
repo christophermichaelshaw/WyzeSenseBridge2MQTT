@@ -1,9 +1,9 @@
 ﻿@using WyzeSenseCore
-@using AntDesign;
+@using AntDesign
 @using WyzeSenseBlazor.DataServices
 @inject IWyzeSenseService SensorService
-
 @inherits FeedbackComponent<DataStorage.Models.WyzeSensorModel, DataStorage.Models.WyzeSensorModel>
+
 
 <Form Model="@sensor" OnFinish="HandleFinish">
     <FormItem Label="MAC">

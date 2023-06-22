@@ -11,6 +11,7 @@ using WyzeSenseBlazor.DataStorage;
 using WyzeSenseBlazor.DataStorage.Models;
 using System.Collections.Generic;
 using System.Linq;
+using System;
 
 namespace WyzeSenseBlazor.DataServices
 {
@@ -36,73 +37,45 @@ namespace WyzeSenseBlazor.DataServices
 
         private void _wyzeSenseService_OnEvent(object sender, WyzeSenseCore.WyzeSenseEvent e)
         {
+            Console.WriteLine("Keys in event data: " + string.Join(", ", e.Data.Keys));
             e.Data.Add("timestamp", e.ServerTime.ToString());
-
             bool hasPublished = false;
-
-            //Topic should always start with the root topic.
             string topic = AppSettingsProvider.ClientSettings.Topic;
 
             if (_dataStore.DataStore.Sensors.TryGetValue(e.Sensor.MAC, out var sensor))
             {
-                List<Topics> toRemove = new();
-                if (sensor.Topics?.Count() > 0)
+                if (sensor.Alias.Length > 0)
                 {
-                    foreach (var topicTemplate in sensor.Topics)
-                    {
-                        if (_dataStore.DataStore.Templates.TryGetValue(topicTemplate.TemplateName, out var template))
-                        {
-                            Dictionary<string, object> payloadData = new();
+                    var payloadData = new Dictionary<string, object>
+            {
+                {"state", e.Data["ModeName"]},
+                {"code_format", "regex"},
+                {"changed_by", null},
+                {"code_arm_required", false}
+            };
 
-                            //Template does exist, need to publish a message for each package.
-                            foreach (var payloadPack in template.PayloadPackages)
-                            {
-                                payloadData.Clear();
-
-                                topic = string.Join('/', topic, sensor.Alias, topicTemplate.RootTopic, payloadPack.Topic);
-                                //Replace double slash to accomodate blank root topic.
-                                topic = System.Text.RegularExpressions.Regex.Replace(topic, @"/+", @"/");
-                                //Remove trailing slash to accomdate blank payload topic.
-                                topic = topic.TrimEnd('/');
-
-                                foreach (var pair in payloadPack.Payload)
-                                {
-                                    if (e.Data.TryGetValue(pair.Value, out var value))
-                                        payloadData.Add(pair.Key, value);
-                                }
-                                if (payloadData.Count() > 0)
-                                {
-                                    //If event data contained any of the payload packet data lets add time and publish.
-                                    payloadData.Add("timestamp", e.ServerTime.ToString());
-                                    PublishMessageAsync(topic, JsonSerializer.Serialize(payloadData));
-                                    hasPublished = true;
-                                }
-                            }
-                        }
-                        else
-                        {
-                            //Template doesn't exist
-                            toRemove.Add(topicTemplate);
-                        }
-                    }
-                    //Remove the topic templates that didn't have a valid template associated.
-                    if(toRemove.Count() > 0)
-                        toRemove.ForEach(p => sensor.Topics.Remove(p));
-                }
-                else if(sensor.Alias.Length > 0)
-                {
-                    //Sensor with no topics, publish with alias. 
-                    PublishMessageAsync(string.Join('/', topic, sensor.Alias), JsonSerializer.Serialize(e.Data));
+                    string newTopic = string.Join('/', topic, sensor.Alias);
+                    PublishMessageAsync(newTopic, JsonSerializer.Serialize(payloadData));
                     hasPublished = true;
                 }
             }
+
             if (!hasPublished)
             {
-                //No database sensor, publish all data to MAC
-                PublishMessageAsync(string.Join('/', topic, e.Sensor.MAC), JsonSerializer.Serialize(e.Data));
+                var payloadData = new Dictionary<string, object>
+        {
+            {"state", e.Data["ModeName"]},
+            {"code_format", "regex"},
+            {"changed_by", null},
+            {"code_arm_required", false}
+        };
+
+                string newTopic = string.Join('/', topic, e.Sensor.MAC);
+                PublishMessageAsync(newTopic, JsonSerializer.Serialize(payloadData));
             }
-            
         }
+
+
 
         private async Task PublishMessageAsync(string topic, string payload)
         {

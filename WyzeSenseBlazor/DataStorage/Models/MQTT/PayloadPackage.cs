@@ -8,8 +8,10 @@ namespace WyzeSenseBlazor.DataStorage.Models
 {
     public class PayloadPackage
     {
-        public string Topic { get; set; }
-        public Dictionary<string, string> Payload { get; set; }
-
+        public string state { get; set; }
+        public string code_format { get; set; }
+        public string changed_by { get; set; }
+        public string code_arm_required { get; set; }
     }
+
 }

@@ -162,9 +162,28 @@ else
             };
         var drawerRef = await DrawerService.CreateAsync<WyzeSenseBlazor.Component.WyzeSensor, WyzeSensorModel, WyzeSensorModel>(options, sensorCollection[MAC]);
 
-        // The drawer is closed by the user, so there's no need to call CloseAsync here
+        drawerRef.OnClosed = async result =>
+        {
+            // Update the sensor in the collection
+            sensorCollection[MAC] = result;
 
-        // After the drawer is closed, update the sensor in the backend
-        await SensorService.UpdateSensorAsync(sensorCollection[MAC]);
+            // Update the sensor in the backend
+            await SensorService.UpdateSensorAsync(result);
+        };
     }
+
+    private async Task OnSensorUpdated(WyzeSensorModel updatedSensor)
+    {
+        if (updatedSensor != null)
+        {
+            // Update the sensor in the collection
+            sensorCollection[updatedSensor.MAC] = updatedSensor;
+
+            // Update the sensor in the backend
+            await SensorService.UpdateSensorAsync(updatedSensor);
+        }
+    }
+
+
+
 }
