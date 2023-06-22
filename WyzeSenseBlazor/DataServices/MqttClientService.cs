@@ -37,44 +37,61 @@ namespace WyzeSenseBlazor.DataServices
 
         private void _wyzeSenseService_OnEvent(object sender, WyzeSenseCore.WyzeSenseEvent e)
         {
-            Console.WriteLine("Keys in event data: " + string.Join(", ", e.Data.Keys));
             e.Data.Add("timestamp", e.ServerTime.ToString());
             bool hasPublished = false;
             string topic = AppSettingsProvider.ClientSettings.Topic;
 
-            if (_dataStore.DataStore.Sensors.TryGetValue(e.Sensor.MAC, out var sensor))
+            // Check if the event data contains ModeName and Code
+            if (e.Data.ContainsKey("ModeName") && e.Data.ContainsKey("Code"))
             {
-                if (sensor.Alias.Length > 0)
+                // Create a new dictionary for the payload
+                var payloadData = new Dictionary<string, object>
                 {
-                    var payloadData = new Dictionary<string, object>
-            {
-                {"state", e.Data["ModeName"]},
-                {"code_format", "regex"},
-                {"changed_by", null},
-                {"code_arm_required", false}
-            };
+                    { "command", e.Data["ModeName"] },
+                    { "code", e.Data["Code"] }
+                };
 
-                    string newTopic = string.Join('/', topic, sensor.Alias);
-                    PublishMessageAsync(newTopic, JsonSerializer.Serialize(payloadData));
-                    hasPublished = true;
-                }
+                // Convert the payload to JSON
+                var payload = JsonSerializer.Serialize(payloadData);
+
+                // Publish the message to the WyseSenseBlazor/command topic
+                PublishMessageAsync("WyseSenseBlazor/command", payload);
             }
 
             if (!hasPublished)
             {
                 var payloadData = new Dictionary<string, object>
-        {
-            {"state", e.Data["ModeName"]},
-            {"code_format", "regex"},
-            {"changed_by", null},
-            {"code_arm_required", false}
-        };
+                {
+                    {"command_topic", ConvertModeNameToState(e.Data["ModeName"].ToString())},
+                    {"code_format", "regex"},
+                    {"changed_by", null},
+                    {"code_arm_required", false}
+                };
 
                 string newTopic = string.Join('/', topic, e.Sensor.MAC);
                 PublishMessageAsync(newTopic, JsonSerializer.Serialize(payloadData));
             }
         }
-
+        private string ConvertModeNameToState(string modeName)
+        {
+            switch (modeName)
+            {
+                case "Disarmed":
+                    return "DISARM";
+                case "Home":
+                    return "ARM_HOME";
+                case "Away":
+                    return "ARM_AWAY";
+                case "Night":
+                    return "ARM_NIGHT";
+                case "Vacation":
+                    return "ARM_VACATION";
+                case "Bypass":
+                    return "ARM_CUSTOM_BYPASS";
+                default:
+                    return modeName;
+            }
+        }
 
 
         private async Task PublishMessageAsync(string topic, string payload)

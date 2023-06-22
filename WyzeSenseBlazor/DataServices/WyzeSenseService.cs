@@ -200,7 +200,7 @@ namespace WyzeSenseBlazor.DataServices
                 existingSensor.Alias = updatedSensor.Alias;
                 existingSensor.Description = updatedSensor.Description;
 
-                // Since this is a dictionary, changes are immediate and there's no need to call SaveChanges but we'll do it anyway just to be safe.
+                // Since this is a dictionary, changes are immediate and there's no need to call SaveChanges but we'll do it anyway
                 await _dataStore.Save();
             }
             else
