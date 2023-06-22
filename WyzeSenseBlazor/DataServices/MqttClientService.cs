@@ -12,6 +12,8 @@ using WyzeSenseBlazor.DataStorage.Models;
 using System.Collections.Generic;
 using System.Linq;
 using System;
+using WyzeSenseCore;
+using Microsoft.Extensions.Logging;
 
 namespace WyzeSenseBlazor.DataServices
 {
@@ -21,57 +23,81 @@ namespace WyzeSenseBlazor.DataServices
         private readonly IDataStoreService _dataStore;
         private readonly IMqttClient _mqttClient;
         private readonly IMqttClientOptions _options;
+        private readonly ILogger<MqttClientService> _logger;
 
         public MqttClientService(IMqttClientOptions options, IWyzeSenseService wyzeSenseService, IDataStoreService dataStore)
         {
             _options = options;
-
             _dataStore = dataStore;
-
             _wyzeSenseService = wyzeSenseService;
-            _wyzeSenseService.OnEvent += _wyzeSenseService_OnEvent;
-
+            _wyzeSenseService.OnEvent += WyzeSenseService_OnEvent;
             _mqttClient = new MqttFactory().CreateMqttClient();
+            _logger = new LoggerFactory().CreateLogger<MqttClientService>();
             ConfigureMqttClient();
+
         }
 
-        private void _wyzeSenseService_OnEvent(object sender, WyzeSenseCore.WyzeSenseEvent e)
+        private void WyzeSenseService_OnEvent(object sender, WyzeSenseEvent e)
         {
-            e.Data.Add("timestamp", e.ServerTime.ToString());
-            bool hasPublished = false;
-            string topic = AppSettingsProvider.ClientSettings.Topic;
-
-            // Check if the event data contains ModeName and Code
-            if (e.Data.ContainsKey("ModeName") && e.Data.ContainsKey("Code"))
+            _logger.LogInformation($"[Dongle][{e.Type}] {e}");
+            if (e.Type == "State")
             {
-                // Create a new dictionary for the payload
-                var payloadData = new Dictionary<string, object>
+                var payload = new PayloadPackage
                 {
-                    { "command", e.Data["ModeName"] },
-                    { "code", e.Data["Code"] }
+                    state = e.Data["State"].ToString(),
+                    code_format = e.Data["CodeFormat"].ToString(),
+                    changed_by = e.Data["ChangedBy"].ToString(),
+                    code_arm_required = e.Data["CodeArmRequired"].ToString()
                 };
 
-                // Convert the payload to JSON
-                var payload = JsonSerializer.Serialize(payloadData);
-
-                // Publish the message to the WyseSenseBlazor/command topic
-                PublishMessageAsync("WyseSenseBlazor/command", payload);
-            }
-
-            if (!hasPublished)
-            {
-                var payloadData = new Dictionary<string, object>
+                if (e.Data.ContainsKey("ModeName"))
                 {
-                    {"command_topic", ConvertModeNameToState(e.Data["ModeName"].ToString())},
-                    {"code_format", "regex"},
-                    {"changed_by", null},
-                    {"code_arm_required", false}
-                };
+                    string modeName = e.Data["ModeName"].ToString();
+                    string commandTopic = "";
 
-                string newTopic = string.Join('/', topic, e.Sensor.MAC);
-                PublishMessageAsync(newTopic, JsonSerializer.Serialize(payloadData));
+                    switch (modeName)
+                    {
+                        case "Disarmed":
+                            commandTopic = "DISARM";
+                            break;
+                        case "Home":
+                            commandTopic = "ARM_HOME";
+                            break;
+                        case "Away":
+                            commandTopic = "ARM_AWAY";
+                            break;
+                        case "Night":
+                            commandTopic = "ARM_NIGHT";
+                            break;
+                        case "Vacation":
+                            commandTopic = "ARM_VACATION";
+                            break;
+                        case "Bypass":
+                            commandTopic = "ARM_CUSTOM_BYPASS";
+                            break;
+                        default:
+                            _logger.LogWarning($"Unknown ModeName: {modeName}");
+                            return;
+                    }
+
+                    payload.command_topic = commandTopic;
+                }
+                else
+                {
+                    _logger.LogWarning("ModeName key not present in event data");
+                }
+
+                var message = new MqttApplicationMessageBuilder()
+                    .WithTopic($"{_options.Value.TopicPrefix}/{e.MAC}")
+                    .WithPayload(JsonSerializer.Serialize(payload))
+                    .WithExactlyOnceQoS()
+                    .WithRetainFlag()
+                    .Build();
+
+                _mqttClient.PublishAsync(message, CancellationToken.None);
             }
         }
+
         private string ConvertModeNameToState(string modeName)
         {
             switch (modeName)
