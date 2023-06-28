@@ -86,28 +86,45 @@ namespace WyzeSenseBlazor.DataServices
                 _ => modeName,
             };
         }
-
         private async Task PublishMessageAsync(string topic, string payload)
         {
-            var message = new MqttApplicationMessageBuilder()
-                .WithTopic(topic)
-                .WithPayload(payload)
-                .WithExactlyOnceQoS()
-                .Build();
-            await _mqttClient.PublishAsync(message);
+            if (!_mqttClient.IsConnected)
+            {
+                _logger.LogError("MQTT client is not connected");
+                System.Console.WriteLine("MQTT client is not connected");
+                return;
+            }
+            try
+            {
+                var message = new MqttApplicationMessageBuilder()
+                    .WithTopic(topic)
+                    .WithPayload(payload)
+                    .WithExactlyOnceQoS()
+                    .Build();
+
+                await _mqttClient.PublishAsync(message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error publishing MQTT message");
+                System.Console.WriteLine("Error publishing MQTT message");
+            }
         }
+
 
         private void ConfigureMqttClient()
         {
             _mqttClient.UseConnectedHandler(async e =>
             {
                 _logger.LogInformation("Connected successfully with MQTT broker.");
+                System.Console.WriteLine("Connected successfully with MQTT broker.");
                 // Perform your necessary action on connected
                 await Task.CompletedTask;
             })
             .UseDisconnectedHandler(async e =>
             {
                 _logger.LogWarning("Disconnected from MQTT broker.");
+                System.Console.WriteLine("Disconnected from MQTT broker.");
                 // Perform your necessary action on disconnected
                 await Task.Delay(TimeSpan.FromSeconds(5));
                 try
@@ -117,6 +134,7 @@ namespace WyzeSenseBlazor.DataServices
                 catch
                 {
                     _logger.LogWarning("Reconnected to MQTT broker.");
+                    System.Console.WriteLine("Reconnected to MQTT broker.");
                 }
             });
 
@@ -134,18 +152,22 @@ namespace WyzeSenseBlazor.DataServices
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Starting MQTT service...");
+            System.Console.WriteLine("Starting MQTT service...");
             await _mqttClient.ConnectAsync(_options, cancellationToken);
             if (!_mqttClient.IsConnected)
             {
                 _logger.LogWarning("Failed to connect with MQTT broker. Trying to reconnect...");
+                System.Console.WriteLine("Failed to connect with MQTT broker. Trying to reconnect...");
                 await _mqttClient.ReconnectAsync();
             }
             _logger.LogInformation("Finished starting MQTT service.");
+            System.Console.WriteLine("Finished starting MQTT service.");
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Stopping MQTT service...");
+            System.Console.WriteLine("Stopping MQTT service...");
             if (cancellationToken.IsCancellationRequested)
             {
                 var disconnectOption = new MqttClientDisconnectOptions
@@ -157,6 +179,7 @@ namespace WyzeSenseBlazor.DataServices
             }
             await _mqttClient.DisconnectAsync();
             _logger.LogInformation("Stopped MQTT service.");
+            System.Console.WriteLine("Stopped MQTT service.");
         }
         public async Task HandleConnectedAsync(MqttClientConnectedEventArgs eventArgs)
         {
