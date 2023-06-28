@@ -36,17 +36,17 @@ namespace WyzeSenseBlazor.DataServices
             _options = options;
             _dataStore = dataStore;
             _wyzeSenseService = wyzeSenseService;
-            _wyzeSenseService.OnEvent += WyzeSenseService_OnEvent;
+            _wyzeSenseService.OnEvent += WyzeSenseService_OnEventAsync;
             _mqttClient = new MqttFactory().CreateMqttClient();
             _logger = new LoggerFactory().CreateLogger<MqttClientService>();
             ConfigureMqttClient();
         }
-        private void WyzeSenseService_OnEvent(object sender, WyzeSenseEvent e)
+        private async Task WyzeSenseService_OnEventAsync(object sender, WyzeSenseEvent e)
         {
             _logger.LogInformation($"[Dongle][{e.EventType}] {e}");
-            if (e.EventType == WyzeEventType.Status)
-
+            if (e.Data.ContainsKey("State"))
             {
+                var state = e.Data["State"].ToString();
                 var payload = new PayloadPackage
                 {
                     state = e.Data["State"].ToString(),
@@ -91,13 +91,13 @@ namespace WyzeSenseBlazor.DataServices
                 {
                     _logger.LogWarning("ModeName key not present in event data");
                 }
-                var message = new MqttApplicationMessageBuilder()
-                    .WithTopic(topic: $"{_options.TopicAliasMaximum}/{e.Sensor.MAC}")
-                    .WithPayload(System.Text.Json.JsonSerializer.Serialize(payload))
+                await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
+                    .WithTopic($"{_appSettingsProvider.ClientSettings.Topic}/{e.Sensor.MAC}")
+                    .WithPayload(JsonConvert.SerializeObject(e))
                     .WithExactlyOnceQoS()
                     .WithRetainFlag()
-                .Build();
-     
+                    .Build());
+
                 _mqttClient.PublishAsync(message, CancellationToken.None);
             }
         }
@@ -168,5 +168,12 @@ namespace WyzeSenseBlazor.DataServices
             }
             await _mqttClient.DisconnectAsync();
         }
+        private readonly AppSettingsProvider _appSettingsProvider;
+
+        public MqttClientService(AppSettingsProvider appSettingsProvider)
+        {
+            _appSettingsProvider = appSettingsProvider;
+        }
+
     }
 }
