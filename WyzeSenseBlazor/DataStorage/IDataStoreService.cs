@@ -9,5 +9,6 @@ namespace WyzeSenseBlazor.DataStorage
     {
         public DataStore DataStore {get; }
         public Task Save();
+
     }
 }

@@ -14,6 +14,12 @@ using System.Linq;
 using System;
 using WyzeSenseCore;
 using Microsoft.Extensions.Logging;
+using WyzeSenseBlazor.Component;
+using MQTTnet.Extensions.ManagedClient;
+using Newtonsoft.Json;
+using System.Text.RegularExpressions;
+using System.Text;
+using AntDesign;
 
 namespace WyzeSenseBlazor.DataServices
 {
@@ -34,13 +40,12 @@ namespace WyzeSenseBlazor.DataServices
             _mqttClient = new MqttFactory().CreateMqttClient();
             _logger = new LoggerFactory().CreateLogger<MqttClientService>();
             ConfigureMqttClient();
-
         }
-
         private void WyzeSenseService_OnEvent(object sender, WyzeSenseEvent e)
         {
             _logger.LogInformation($"[Dongle][{e.EventType}] {e}");
-            if (e.EventType == "State")
+            if (e.EventType == WyzeEventType.Status)
+
             {
                 var payload = new PayloadPackage
                 {
@@ -86,15 +91,13 @@ namespace WyzeSenseBlazor.DataServices
                 {
                     _logger.LogWarning("ModeName key not present in event data");
                 }
-
                 var message = new MqttApplicationMessageBuilder()
-                    .WithTopic(topic: $"{_options.TopicPrefix}/{e.Sensor.MAC}") // Changed this line
-                    .WithPayload(JsonSerializer.Serialize(payload))
+                    .WithTopic(topic: $"{_options.TopicAliasMaximum}/{e.Sensor.MAC}")
+                    .WithPayload(System.Text.Json.JsonSerializer.Serialize(payload))
                     .WithExactlyOnceQoS()
                     .WithRetainFlag()
-                    .Build();
-
-
+                .Build();
+     
                 _mqttClient.PublishAsync(message, CancellationToken.None);
             }
         }
@@ -113,7 +116,6 @@ namespace WyzeSenseBlazor.DataServices
             };
         }
 
-
         private async Task PublishMessageAsync(string topic, string payload)
         {
             var message = new MqttApplicationMessageBuilder()
@@ -124,13 +126,11 @@ namespace WyzeSenseBlazor.DataServices
             await _mqttClient.PublishAsync(message);
         }
 
-
         private void ConfigureMqttClient()
         {
             _mqttClient.ConnectedHandler = this;
             _mqttClient.DisconnectedHandler = this;
         }
-
         public async Task HandleConnectedAsync(MqttClientConnectedEventArgs eventArgs)
         {
             await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
@@ -142,7 +142,6 @@ namespace WyzeSenseBlazor.DataServices
 
         public Task HandleDisconnectedAsync(MqttClientDisconnectedEventArgs eventArgs)
         {
-            //throw new System.NotImplementedException();
             return Task.CompletedTask;
         }
 
