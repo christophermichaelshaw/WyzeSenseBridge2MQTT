@@ -41,7 +41,7 @@ namespace WyzeSenseBlazor.DataServices
             _logger = new LoggerFactory().CreateLogger<MqttClientService>();
             ConfigureMqttClient();
         }
-        private async Task WyzeSenseService_OnEventAsync(object sender, WyzeSenseEvent e)
+        private async void WyzeSenseService_OnEventAsync(object sender, WyzeSenseEvent e)
         {
             _logger.LogInformation($"[Dongle][{e.EventType}] {e}");
             if (e.Data.ContainsKey("State"))
@@ -92,13 +92,11 @@ namespace WyzeSenseBlazor.DataServices
                     _logger.LogWarning("ModeName key not present in event data");
                 }
                 await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
-                    .WithTopic($"{_appSettingsProvider.ClientSettings.Topic}/{e.Sensor.MAC}")
+                    .WithTopic($"{AppSettingsProvider.ClientSettings.Topic}/{e.Sensor.MAC}")
                     .WithPayload(JsonConvert.SerializeObject(e))
                     .WithExactlyOnceQoS()
                     .WithRetainFlag()
                     .Build());
-
-                _mqttClient.PublishAsync(message, CancellationToken.None);
             }
         }
 
