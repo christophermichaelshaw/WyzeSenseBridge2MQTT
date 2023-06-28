@@ -41,6 +41,7 @@ namespace WyzeSenseBlazor.DataServices
 
             bool hasPublished = false;
 
+            // Convert ModeName to command_topic, and the key's values to match Home Assistant mqtt_alarm_control_panel expected values
             if (e.Data.TryGetValue("ModeName", out var modeNameObj) && modeNameObj is string modeName)
             {
                 e.Data.Remove("ModeName");
@@ -71,6 +72,14 @@ namespace WyzeSenseBlazor.DataServices
                 }
                 e.Data.Add("command_topic", commandTopic);
             }
+
+            // Convert Pin to code
+            if (e.Data.TryGetValue("Pin", out var pinObj) && pinObj is string pin)
+            {
+                e.Data.Remove("Pin");
+                e.Data.Add("code", pin);
+            }
+
 
             //Topic should always start with the root topic.
             string topic = AppSettingsProvider.ClientSettings.Topic;
