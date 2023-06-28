@@ -1,21 +1,18 @@
 ﻿using MQTTnet;
 using MQTTnet.Client;
-using MQTTnet.Client.Options;
 using MQTTnet.Client.Connecting;
 using MQTTnet.Client.Disconnecting;
-using MQTTnet.Extensions.ManagedClient;
-using System;
-using System.Text;
+using MQTTnet.Client.Options;
 using System.Threading;
 using System.Threading.Tasks;
-using WyzeSenseBlazor.Component;
-using WyzeSenseBlazor.DataServices;
+using System.Text.Json;
+using WyzeSenseBlazor.Settings;
 using WyzeSenseBlazor.DataStorage;
 using WyzeSenseBlazor.DataStorage.Models;
-using WyzeSenseBlazor.Settings;
-using WyzeSenseCore;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using System;
 
 namespace WyzeSenseBlazor.DataServices
 {
@@ -26,142 +23,134 @@ namespace WyzeSenseBlazor.DataServices
         private readonly IMqttClient _mqttClient;
         private readonly IMqttClientOptions _options;
         private readonly ILogger<MqttClientService> _logger;
-        private readonly AppSettingsProvider _appSettingsProvider;
 
-        public MqttClientService(IMqttClientOptions options, IWyzeSenseService wyzeSenseService, IDataStoreService dataStore, AppSettingsProvider appSettingsProvider)
+        public MqttClientService(IMqttClientOptions options, IWyzeSenseService wyzeSenseService, IDataStoreService dataStore, ILogger<MqttClientService> logger)
         {
             _options = options;
             _dataStore = dataStore;
             _wyzeSenseService = wyzeSenseService;
-            _wyzeSenseService.OnEvent += WyzeSenseService_OnEventAsync;
+            _wyzeSenseService.OnEvent += _wyzeSenseService_OnEvent;
             _mqttClient = new MqttFactory().CreateMqttClient();
-            _logger = new LoggerFactory().CreateLogger<MqttClientService>();
-            _appSettingsProvider = appSettingsProvider;
+            _logger = logger;
             ConfigureMqttClient();
         }
 
-        private async void WyzeSenseService_OnEventAsync(object sender, WyzeSenseEvent e)
+        private void _wyzeSenseService_OnEvent(object sender, WyzeSenseCore.WyzeSenseEvent e)
         {
-            _logger.LogInformation($"[Dongle][{e.EventType}] {e}");
-            if (e.Data.ContainsKey("State"))
+            e.Data.Add("timestamp", e.ServerTime.ToString());
+
+            bool hasPublished = false;
+
+            //Topic should always start with the root topic.
+            string topic = AppSettingsProvider.ClientSettings.Topic;
+
+            if (_dataStore.DataStore.Sensors.TryGetValue(e.Sensor.MAC, out var sensor))
             {
-                var state = e.Data["State"].ToString();
-                var payload = new PayloadPackage
+                List<Topics> toRemove = new();
+                if (sensor.Topics?.Count() > 0)
                 {
-                    state = e.Data["State"].ToString(),
-                    code_format = e.Data["CodeFormat"].ToString(),
-                    changed_by = e.Data["ChangedBy"].ToString(),
-                    code_arm_required = e.Data["CodeArmRequired"].ToString()
-                };
+                    foreach (var topicTemplate in sensor.Topics)
+                    {
+                        if (_dataStore.DataStore.Templates.TryGetValue(topicTemplate.TemplateName, out var template))
+                        {
+                            Dictionary<string, object> payloadData = new();
 
-                if (e.Data.ContainsKey("ModeName"))
-                {
-                    string modeName = e.Data["ModeName"].ToString();
-                    string commandTopic = ConvertModeNameToState(modeName);
-                    payload.command_topic = commandTopic;
-                }
-                else
-                {
-                    _logger.LogWarning("ModeName key not present in event data");
-                }
+                            //Template does exist, need to publish a message for each package.
+                            foreach (var payloadPack in template.PayloadPackages)
+                            {
+                                payloadData.Clear();
 
-                await PublishMessageAsync($"{AppSettingsProvider.ClientSettings.Topic}/{e.Sensor.MAC}", JsonConvert.SerializeObject(payload));
+                                topic = string.Join('/', topic, sensor.Alias, topicTemplate.RootTopic, payloadPack.Topic);
+                                //Replace double slash to accomodate blank root topic.
+                                topic = System.Text.RegularExpressions.Regex.Replace(topic, @"/+", @"/");
+                                //Remove trailing slash to accomdate blank payload topic.
+                                topic = topic.TrimEnd('/');
+
+                                foreach (var pair in payloadPack.Payload)
+                                {
+                                    if (e.Data.TryGetValue(pair.Value, out var value))
+                                        payloadData.Add(pair.Key, value);
+                                }
+                                if (payloadData.Count() > 0)
+                                {
+                                    //If event data contained any of the payload packet data lets add time and publish.
+                                    payloadData.Add("timestamp", e.ServerTime.ToString());
+                                    PublishMessageAsync(topic, JsonSerializer.Serialize(payloadData));
+                                    hasPublished = true;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            //Template doesn't exist
+                            toRemove.Add(topicTemplate);
+                        }
+                    }
+                    //Remove the topic templates that didn't have a valid template associated.
+                    if (toRemove.Count() > 0)
+                        toRemove.ForEach(p => sensor.Topics.Remove(p));
+                }
+                else if (sensor.Alias.Length > 0)
+                {
+                    //Sensor with no topics, publish with alias. 
+                    PublishMessageAsync(string.Join('/', topic, sensor.Alias), JsonSerializer.Serialize(e.Data));
+                    hasPublished = true;
+                }
             }
+            if (!hasPublished)
+            {
+                //No database sensor, publish all data to MAC
+                PublishMessageAsync(string.Join('/', topic, e.Sensor.MAC), JsonSerializer.Serialize(e.Data));
+            }
+
         }
 
-        private string ConvertModeNameToState(string modeName)
-        {
-            return modeName switch
-            {
-                "Disarmed" => "DISARM",
-                "Home" => "ARM_HOME",
-                "Away" => "ARM_AWAY",
-                "Night" => "ARM_NIGHT",
-                "Vacation" => "ARM_VACATION",
-                "Bypass" => "ARM_CUSTOM_BYPASS",
-                _ => modeName,
-            };
-        }
 
         private async Task PublishMessageAsync(string topic, string payload)
         {
-            if (!_mqttClient.IsConnected)
-            {
-                _logger.LogError("MQTT client is not connected");
-                Console.WriteLine("MQTT client is not connected");
-                return;
-            }
-            try
-            {
-                var message = new MqttApplicationMessageBuilder()
-                    .WithTopic(topic)
-                    .WithPayload(payload)
-                    .WithExactlyOnceQoS()
-                    .Build();
-
-                await _mqttClient.PublishAsync(message);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error publishing MQTT message");
-                Console.WriteLine("Error publishing MQTT message");
-            }
+            var message = new MqttApplicationMessageBuilder()
+                .WithTopic(topic)
+                .WithPayload(payload)
+                .WithExactlyOnceQoS()
+                .Build();
+            await _mqttClient.PublishAsync(message);
+            _logger.LogInformation($"Published message to topic {topic}");
         }
 
         private void ConfigureMqttClient()
         {
-            _mqttClient.UseConnectedHandler(async e =>
-            {
-                _logger.LogInformation("Connected successfully with MQTT broker.");
-                Console.WriteLine("Connected successfully with MQTT broker.");
-                await Task.CompletedTask;
-            })
-            .UseDisconnectedHandler(async e =>
-            {
-                _logger.LogWarning("Disconnected from MQTT broker.");
-                Console.WriteLine("Disconnected from MQTT broker.");
-                await Task.Delay(TimeSpan.FromSeconds(5));
-                try
-                {
-                    await _mqttClient.ConnectAsync(_options, CancellationToken.None);
-                }
-                catch
-                {
-                    _logger.LogWarning("Reconnected to MQTT broker.");
-                    Console.WriteLine("Reconnected to MQTT broker.");
-                }
-            });
+            _mqttClient.ConnectedHandler = this;
+            _mqttClient.DisconnectedHandler = this;
+        }
 
-            _mqttClient.UseApplicationMessageReceivedHandler(e =>
-            {
-                _logger.LogInformation("### RECEIVED APPLICATION MESSAGE ###");
-                _logger.LogInformation($"+ Topic = {e.ApplicationMessage.Topic}");
-                _logger.LogInformation($"+ Payload = {Encoding.UTF8.GetString(e.ApplicationMessage.Payload)}");
-                _logger.LogInformation($"+ QoS = {e.ApplicationMessage.QualityOfServiceLevel}");
-                _logger.LogInformation($"+ Retain = {e.ApplicationMessage.Retain}");
-                _logger.LogInformation(" ");
-            });
+        async Task IMqttClientConnectedHandler.HandleConnectedAsync(MqttClientConnectedEventArgs eventArgs)
+        {
+            await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
+                .WithTopic(AppSettingsProvider.ClientSettings.Topic)
+                .WithPayload("Online")
+                .WithExactlyOnceQoS()
+                .Build());
+            _logger.LogInformation("MQTT client connected");
+        }
+
+        Task IMqttClientDisconnectedHandler.HandleDisconnectedAsync(MqttClientDisconnectedEventArgs eventArgs)
+        {
+            _logger.LogInformation("MQTT client disconnected");
+            return Task.CompletedTask;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Starting MQTT service...");
-            Console.WriteLine("Starting MQTT service...");
-            await _mqttClient.ConnectAsync(_options, cancellationToken);
+            await _mqttClient.ConnectAsync(_options);
             if (!_mqttClient.IsConnected)
             {
-                _logger.LogWarning("Failed to connect with MQTT broker. Trying to reconnect...");
-                Console.WriteLine("Failed to connect with MQTT broker. Trying to reconnect...");
                 await _mqttClient.ReconnectAsync();
             }
-            _logger.LogInformation("Finished starting MQTT service.");
-            Console.WriteLine("Finished starting MQTT service.");
+            _logger.LogInformation("Finishing starting MQTT service");
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Stopping MQTT service...");
-            Console.WriteLine("Stopping MQTT service...");
             if (cancellationToken.IsCancellationRequested)
             {
                 var disconnectOption = new MqttClientDisconnectOptions
@@ -172,20 +161,8 @@ namespace WyzeSenseBlazor.DataServices
                 await _mqttClient.DisconnectAsync(disconnectOption, cancellationToken);
             }
             await _mqttClient.DisconnectAsync();
-            _logger.LogInformation("Stopped MQTT service.");
-            Console.WriteLine("Stopped MQTT service.");
-        }
-        public async Task HandleConnectedAsync(MqttClientConnectedEventArgs eventArgs)
-        {
-            await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
-                .WithTopic(AppSettingsProvider.ClientSettings.Topic)
-                .WithPayload("Online")
-                .WithExactlyOnceQoS()
-                .Build());
-        }
-
-        public async Task HandleDisconnectedAsync(MqttClientDisconnectedEventArgs eventArgs)
-        {
+            _logger.LogInformation("MQTT client stopped");
         }
     }
 }
+
