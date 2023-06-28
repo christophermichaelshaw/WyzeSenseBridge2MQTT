@@ -41,6 +41,37 @@ namespace WyzeSenseBlazor.DataServices
 
             bool hasPublished = false;
 
+            if (e.Data.TryGetValue("ModeName", out var modeNameObj) && modeNameObj is string modeName)
+            {
+                e.Data.Remove("ModeName");
+                string commandTopic;
+                switch (modeName)
+                {
+                    case "Disarmed":
+                        commandTopic = "DISARM";
+                        break;
+                    case "Home":
+                        commandTopic = "ARM_HOME";
+                        break;
+                    case "Away":
+                        commandTopic = "ARM_AWAY";
+                        break;
+                    case "Night":
+                        commandTopic = "ARM_NIGHT";
+                        break;
+                    case "Vacation":
+                        commandTopic = "ARM_VACATION";
+                        break;
+                    case "Bypass":
+                        commandTopic = "ARM_CUSTOM_BYPASS";
+                        break;
+                    default:
+                        commandTopic = modeName; // If the modeName is not one of the above, use it as is.
+                        break;
+                }
+                e.Data.Add("command_topic", commandTopic);
+            }
+
             //Topic should always start with the root topic.
             string topic = AppSettingsProvider.ClientSettings.Topic;
 
