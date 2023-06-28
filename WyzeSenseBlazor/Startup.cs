@@ -63,6 +63,9 @@ namespace WyzeSenseBlazor
             services.AddSingleton<IWyzeSenseService, WyzeSenseService>();
 
             services.AddScoped<IMQTTTemplateService, MQTTTemplateService>();
+
+            services.AddSingleton<AppSettingsProvider>();
+
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

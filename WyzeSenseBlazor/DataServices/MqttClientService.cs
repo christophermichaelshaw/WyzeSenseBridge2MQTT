@@ -19,7 +19,7 @@ using MQTTnet.Extensions.ManagedClient;
 using Newtonsoft.Json;
 using System.Text.RegularExpressions;
 using System.Text;
-using AntDesign;
+using MQTTnet.Client.Receiving;
 
 namespace WyzeSenseBlazor.DataServices
 {
@@ -30,8 +30,9 @@ namespace WyzeSenseBlazor.DataServices
         private readonly IMqttClient _mqttClient;
         private readonly IMqttClientOptions _options;
         private readonly ILogger<MqttClientService> _logger;
+        private readonly AppSettingsProvider _appSettingsProvider;
 
-        public MqttClientService(IMqttClientOptions options, IWyzeSenseService wyzeSenseService, IDataStoreService dataStore)
+        public MqttClientService(IMqttClientOptions options, IWyzeSenseService wyzeSenseService, IDataStoreService dataStore, AppSettingsProvider appSettingsProvider)
         {
             _options = options;
             _dataStore = dataStore;
@@ -39,8 +40,10 @@ namespace WyzeSenseBlazor.DataServices
             _wyzeSenseService.OnEvent += WyzeSenseService_OnEventAsync;
             _mqttClient = new MqttFactory().CreateMqttClient();
             _logger = new LoggerFactory().CreateLogger<MqttClientService>();
+            _appSettingsProvider = appSettingsProvider;
             ConfigureMqttClient();
         }
+
         private async void WyzeSenseService_OnEventAsync(object sender, WyzeSenseEvent e)
         {
             _logger.LogInformation($"[Dongle][{e.EventType}] {e}");
@@ -58,45 +61,15 @@ namespace WyzeSenseBlazor.DataServices
                 if (e.Data.ContainsKey("ModeName"))
                 {
                     string modeName = e.Data["ModeName"].ToString();
-                    string commandTopic = "";
-
-                    switch (modeName)
-                    {
-                        case "Disarmed":
-                            commandTopic = "DISARM";
-                            break;
-                        case "Home":
-                            commandTopic = "ARM_HOME";
-                            break;
-                        case "Away":
-                            commandTopic = "ARM_AWAY";
-                            break;
-                        case "Night":
-                            commandTopic = "ARM_NIGHT";
-                            break;
-                        case "Vacation":
-                            commandTopic = "ARM_VACATION";
-                            break;
-                        case "Bypass":
-                            commandTopic = "ARM_CUSTOM_BYPASS";
-                            break;
-                        default:
-                            _logger.LogWarning($"Unknown ModeName: {modeName}");
-                            return;
-                    }
-
+                    string commandTopic = ConvertModeNameToState(modeName);
                     payload.command_topic = commandTopic;
                 }
                 else
                 {
                     _logger.LogWarning("ModeName key not present in event data");
                 }
-                await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
-                    .WithTopic($"{AppSettingsProvider.ClientSettings.Topic}/{e.Sensor.MAC}")
-                    .WithPayload(JsonConvert.SerializeObject(e))
-                    .WithExactlyOnceQoS()
-                    .WithRetainFlag()
-                    .Build());
+
+                await PublishMessageAsync($"{AppSettingsProvider.ClientSettings.Topic}/{e.Sensor.MAC}", JsonConvert.SerializeObject(payload));
             }
         }
 
@@ -126,35 +99,53 @@ namespace WyzeSenseBlazor.DataServices
 
         private void ConfigureMqttClient()
         {
-            _mqttClient.ConnectedHandler = this;
-            _mqttClient.DisconnectedHandler = this;
-        }
-        public async Task HandleConnectedAsync(MqttClientConnectedEventArgs eventArgs)
-        {
-            await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
-                .WithTopic(AppSettingsProvider.ClientSettings.Topic)
-                .WithPayload("Online")
-                .WithExactlyOnceQoS()
-                .Build());
-        }
+            _mqttClient.UseConnectedHandler(async e =>
+            {
+                _logger.LogInformation("Connected successfully with MQTT broker.");
+                // Perform your necessary action on connected
+                await Task.CompletedTask;
+            })
+            .UseDisconnectedHandler(async e =>
+            {
+                _logger.LogWarning("Disconnected from MQTT broker.");
+                // Perform your necessary action on disconnected
+                await Task.Delay(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await _mqttClient.ConnectAsync(_options, CancellationToken.None); // Since 3.0.5 with CancellationToken
+                }
+                catch
+                {
+                    _logger.LogWarning("Reconnected to MQTT broker.");
+                }
+            });
 
-        public Task HandleDisconnectedAsync(MqttClientDisconnectedEventArgs eventArgs)
-        {
-            return Task.CompletedTask;
+            _mqttClient.UseApplicationMessageReceivedHandler(e =>
+            {
+                _logger.LogInformation("### RECEIVED APPLICATION MESSAGE ###");
+                _logger.LogInformation($"+ Topic = {e.ApplicationMessage.Topic}");
+                _logger.LogInformation($"+ Payload = {Encoding.UTF8.GetString(e.ApplicationMessage.Payload)}");
+                _logger.LogInformation($"+ QoS = {e.ApplicationMessage.QualityOfServiceLevel}");
+                _logger.LogInformation($"+ Retain = {e.ApplicationMessage.Retain}");
+                _logger.LogInformation(" ");
+            });
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            await _mqttClient.ConnectAsync(_options);
+            _logger.LogInformation("Starting MQTT service...");
+            await _mqttClient.ConnectAsync(_options, cancellationToken);
             if (!_mqttClient.IsConnected)
             {
+                _logger.LogWarning("Failed to connect with MQTT broker. Trying to reconnect...");
                 await _mqttClient.ReconnectAsync();
             }
-            System.Console.WriteLine("Finishing starting MQTT service");
+            _logger.LogInformation("Finished starting MQTT service.");
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Stopping MQTT service...");
             if (cancellationToken.IsCancellationRequested)
             {
                 var disconnectOption = new MqttClientDisconnectOptions
@@ -165,13 +156,19 @@ namespace WyzeSenseBlazor.DataServices
                 await _mqttClient.DisconnectAsync(disconnectOption, cancellationToken);
             }
             await _mqttClient.DisconnectAsync();
+            _logger.LogInformation("Stopped MQTT service.");
         }
-        private readonly AppSettingsProvider _appSettingsProvider;
-
-        public MqttClientService(AppSettingsProvider appSettingsProvider)
+        public async Task HandleConnectedAsync(MqttClientConnectedEventArgs eventArgs)
         {
-            _appSettingsProvider = appSettingsProvider;
+            await _mqttClient.PublishAsync(new MqttApplicationMessageBuilder()
+                .WithTopic(AppSettingsProvider.ClientSettings.Topic)
+                .WithPayload("Online")
+                .WithExactlyOnceQoS()
+                .Build());
         }
 
+        public async Task HandleDisconnectedAsync(MqttClientDisconnectedEventArgs eventArgs)
+        {
+        }
     }
 }
