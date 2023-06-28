@@ -1,25 +1,21 @@
 ﻿using MQTTnet;
 using MQTTnet.Client;
+using MQTTnet.Client.Options;
 using MQTTnet.Client.Connecting;
 using MQTTnet.Client.Disconnecting;
-using MQTTnet.Client.Options;
+using MQTTnet.Extensions.ManagedClient;
+using System;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Text.Json;
-using WyzeSenseBlazor.Settings;
+using WyzeSenseBlazor.Component;
+using WyzeSenseBlazor.DataServices;
 using WyzeSenseBlazor.DataStorage;
 using WyzeSenseBlazor.DataStorage.Models;
-using System.Collections.Generic;
-using System.Linq;
-using System;
+using WyzeSenseBlazor.Settings;
 using WyzeSenseCore;
 using Microsoft.Extensions.Logging;
-using WyzeSenseBlazor.Component;
-using MQTTnet.Extensions.ManagedClient;
 using Newtonsoft.Json;
-using System.Text.RegularExpressions;
-using System.Text;
-using MQTTnet.Client.Receiving;
 
 namespace WyzeSenseBlazor.DataServices
 {
@@ -86,12 +82,13 @@ namespace WyzeSenseBlazor.DataServices
                 _ => modeName,
             };
         }
+
         private async Task PublishMessageAsync(string topic, string payload)
         {
             if (!_mqttClient.IsConnected)
             {
                 _logger.LogError("MQTT client is not connected");
-                System.Console.WriteLine("MQTT client is not connected");
+                Console.WriteLine("MQTT client is not connected");
                 return;
             }
             try
@@ -107,34 +104,31 @@ namespace WyzeSenseBlazor.DataServices
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error publishing MQTT message");
-                System.Console.WriteLine("Error publishing MQTT message");
+                Console.WriteLine("Error publishing MQTT message");
             }
         }
-
 
         private void ConfigureMqttClient()
         {
             _mqttClient.UseConnectedHandler(async e =>
             {
                 _logger.LogInformation("Connected successfully with MQTT broker.");
-                System.Console.WriteLine("Connected successfully with MQTT broker.");
-                // Perform your necessary action on connected
+                Console.WriteLine("Connected successfully with MQTT broker.");
                 await Task.CompletedTask;
             })
             .UseDisconnectedHandler(async e =>
             {
                 _logger.LogWarning("Disconnected from MQTT broker.");
-                System.Console.WriteLine("Disconnected from MQTT broker.");
-                // Perform your necessary action on disconnected
+                Console.WriteLine("Disconnected from MQTT broker.");
                 await Task.Delay(TimeSpan.FromSeconds(5));
                 try
                 {
-                    await _mqttClient.ConnectAsync(_options, CancellationToken.None); // Since 3.0.5 with CancellationToken
+                    await _mqttClient.ConnectAsync(_options, CancellationToken.None);
                 }
                 catch
                 {
                     _logger.LogWarning("Reconnected to MQTT broker.");
-                    System.Console.WriteLine("Reconnected to MQTT broker.");
+                    Console.WriteLine("Reconnected to MQTT broker.");
                 }
             });
 
@@ -152,22 +146,22 @@ namespace WyzeSenseBlazor.DataServices
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Starting MQTT service...");
-            System.Console.WriteLine("Starting MQTT service...");
+            Console.WriteLine("Starting MQTT service...");
             await _mqttClient.ConnectAsync(_options, cancellationToken);
             if (!_mqttClient.IsConnected)
             {
                 _logger.LogWarning("Failed to connect with MQTT broker. Trying to reconnect...");
-                System.Console.WriteLine("Failed to connect with MQTT broker. Trying to reconnect...");
+                Console.WriteLine("Failed to connect with MQTT broker. Trying to reconnect...");
                 await _mqttClient.ReconnectAsync();
             }
             _logger.LogInformation("Finished starting MQTT service.");
-            System.Console.WriteLine("Finished starting MQTT service.");
+            Console.WriteLine("Finished starting MQTT service.");
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Stopping MQTT service...");
-            System.Console.WriteLine("Stopping MQTT service...");
+            Console.WriteLine("Stopping MQTT service...");
             if (cancellationToken.IsCancellationRequested)
             {
                 var disconnectOption = new MqttClientDisconnectOptions
@@ -179,7 +173,7 @@ namespace WyzeSenseBlazor.DataServices
             }
             await _mqttClient.DisconnectAsync();
             _logger.LogInformation("Stopped MQTT service.");
-            System.Console.WriteLine("Stopped MQTT service.");
+            Console.WriteLine("Stopped MQTT service.");
         }
         public async Task HandleConnectedAsync(MqttClientConnectedEventArgs eventArgs)
         {
