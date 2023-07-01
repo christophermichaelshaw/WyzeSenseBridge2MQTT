@@ -11,9 +11,6 @@ namespace WyzeSenseBlazor.Settings
         public string UserName { set; get; }
         public string Password { set; get; }
         public string Topic { get; set; }
-        public string CommandTopic { get; set; }
-        public string StateTopic { get; set; }
-        public string EventTopic { get; set; }
 
     }
 }
